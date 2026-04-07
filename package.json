@@ -1,0 +1,25 @@
+{
+  "name": "internship-v3",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dry": "DRY_RUN=true node src/index.js",
+    "live": "DRY_RUN=false node src/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
+    "axios": "^1.14.0",
+    "dotenv": "^17.4.1",
+    "googleapis": "^171.4.0",
+    "nodemailer": "^8.0.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
