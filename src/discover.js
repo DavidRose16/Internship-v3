@@ -1,55 +1,267 @@
-const Anthropic = require('@anthropic-ai/sdk');
-
-const anthropic = new Anthropic();
+const Exa = require('exa-js').default;
 
 /**
- * Parse JSON from Claude's response, handling markdown code fences.
+ * Normalize a domain from a URL.
  */
-function parseJSON(text) {
-  const cleaned = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
-  return JSON.parse(cleaned);
+function extractDomain(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return '';
+  }
 }
 
 /**
- * Discover companies for outreach using Claude.
- * @param {string[]} categories - e.g. ["AI startups", "VC firms"]
- * @param {string[]} existingCompanies - names already in the sheet
- * @param {number} count - how many companies to find
- * @returns {Promise<Array<{name, website, category, reason}>>}
+ * Block obvious junk / directories / list pages.
  */
-async function discoverCompanies(categories, existingCompanies, count) {
-  const excludeBlock = existingCompanies.length > 0
-    ? `\n\nDo NOT include any of these companies (already contacted):\n${existingCompanies.join('\n')}`
-    : '';
+function isLikelyCompanyUrl(url) {
+  try {
+    const u = new URL(url);
+    const path = u.pathname.toLowerCase();
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 2048,
-    messages: [{
-      role: 'user',
-      content: `You are helping a college student find companies for internship outreach.
+    const blockedPathFragments = [
+      '/blog',
+      '/news',
+      '/directory',
+      '/companies/',
+      '/industry/',
+      '/list',
+      '/top',
+      '/rank',
+      '/category',
+      '/resources',
+      '/guides',
+      '/compare',
+      '/startups/',
+      '/library/',
+      '/sites/',
+      '/venture/',
+    ];
 
-Discover exactly ${count} companies across these categories: ${categories.join(', ')}.
+    return !blockedPathFragments.some(fragment => path.includes(fragment));
+  } catch {
+    return false;
+  }
+}
 
-For each company provide:
-- name: the company name
-- website: the company's main website URL
-- category: which of the given categories it falls into
-- reason: one sentence on why this company is worth reaching out to for an internship
+/**
+ * Block list-style titles.
+ */
+function looksLikeBadCompanyTitle(title = '') {
+  const lower = title.toLowerCase();
 
-Focus on:
-- Companies likely to have internship opportunities or be open to hiring interns
-- A mix of well-known and lesser-known companies
-- Companies that are actively growing or recently funded
-- Real companies with real websites — do not invent companies
-${excludeBlock}
+  const blockedPatterns = [
+    'startups funded by',
+    'fastest growing',
+    'top ',
+    'best ',
+    'companies and',
+    'directory',
+    'blog',
+    'guide',
+    'list of',
+    'startup library',
+    'consumer ai startups',
+    'seed rounds are all for ai companies',
+  ];
 
-Respond ONLY with a JSON array. No markdown fences, no explanation. Example format:
-[{"name":"Acme Corp","website":"https://acme.com","category":"AI startups","reason":"Recently raised Series A and expanding their engineering team"}]`
-    }]
-  });
+  return blockedPatterns.some(pattern => lower.includes(pattern));
+}
 
-  return parseJSON(message.content[0].text);
+/**
+ * Block obviously wrong domains.
+ */
+function isBlockedDomain(domain = '') {
+  const blocked = new Set([
+    'workato.com',
+    'getmagical.com',
+    'github.com',
+    'news.crunchbase.com',
+    'forbes.com',
+    'nextplayso.substack.com',
+    'startupweekendsf.com',
+  ]);
+
+  return blocked.has(domain);
+}
+
+/**
+ * Filter out service / consulting companies.
+ */
+function looksLikeServiceBusiness(text = '') {
+  const lower = text.toLowerCase();
+
+  const blockedPatterns = [
+    'tailored solutions',
+    'product and services firm',
+    'consulting',
+    'full-service',
+    'agency',
+    'services firm',
+  ];
+
+  return blockedPatterns.some(pattern => lower.includes(pattern));
+}
+
+/**
+ * Filter out obviously larger / later-stage companies.
+ */
+function looksTooBig(text = '') {
+  const lower = text.toLowerCase();
+
+  return (
+    lower.includes('series b') ||
+    lower.includes('series c') ||
+    lower.includes('series d') ||
+    lower.includes('annual revenue') ||
+    lower.includes('403 people') ||
+    lower.includes('57 people') ||
+    lower.includes('1063 people') ||
+    lower.includes('$480.0m') ||
+    lower.includes('$335.0m')
+  );
+}
+
+/**
+ * Filter out polluted / clearly mismatched metadata.
+ */
+function looksPolluted(text = '') {
+  const lower = text.toLowerCase();
+
+  const badPatterns = [
+    "women's clothing boutique",
+    'accounting company',
+    'electrical, solar, and air-conditioning',
+    '3d scanning and design studio',
+    'startup weekend is a dynamic 3-day accelerator',
+  ];
+
+  return badPatterns.some(pattern => lower.includes(pattern));
+}
+
+/**
+ * Bias toward interesting, technical startups.
+ */
+function looksInteresting(text = '') {
+  const lower = text.toLowerCase();
+
+  const goodSignals = [
+    'ai',
+    'agent',
+    'llm',
+    'developer',
+    'infrastructure',
+    'api',
+    'platform',
+    'automation',
+    'model',
+    'tool',
+    'engine',
+  ];
+
+  return goodSignals.some(s => lower.includes(s));
+}
+
+/**
+ * Clean snippet.
+ */
+function cleanDiscoverySnippet(text = '') {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 400);
+}
+
+/**
+ * Extract company name.
+ */
+function extractCompanyName(title, url) {
+  if (title && title.trim() && !looksLikeBadCompanyTitle(title)) {
+    return title
+      .split(' | ')[0]
+      .split(' - ')[0]
+      .trim();
+  }
+
+  const domain = extractDomain(url);
+  if (!domain) return '';
+  return domain.split('.')[0];
+}
+
+/**
+ * MAIN
+ */
+async function discoverCompanies(queries, existingDomains = new Set(), maxPerQuery = 10) {
+  const exa = new Exa(process.env.EXA_API_KEY);
+  const runId = Date.now().toString();
+
+  let queuePosition = 1;
+  const discovered = [];
+
+  for (const query of queries) {
+    const response = await exa.search(query, {
+      category: 'company',
+      type: 'auto',
+      numResults: maxPerQuery,
+    });
+
+    const results = response.results || [];
+
+    for (const result of results) {
+      const sourceUrl = result.url || '';
+      const sourceTitle = result.title || '';
+      const domain = extractDomain(sourceUrl);
+      const textBlob = `${sourceTitle} ${result.text || ''}`;
+
+      if (!domain) continue;
+      if (existingDomains.has(domain)) continue;
+      if (isBlockedDomain(domain)) continue;
+      if (!isLikelyCompanyUrl(sourceUrl)) continue;
+      if (looksLikeBadCompanyTitle(sourceTitle)) continue;
+      if (looksLikeServiceBusiness(textBlob)) continue;
+      if (looksTooBig(textBlob)) continue;
+      if (looksPolluted(textBlob)) continue;
+      if (!looksInteresting(textBlob)) continue;
+
+      existingDomains.add(domain);
+
+      discovered.push({
+        runId,
+        queuePosition: queuePosition++,
+        stage: 'discovered',
+        status: 'pending',
+        company: extractCompanyName(sourceTitle, sourceUrl),
+        domain,
+        category: 'company',
+        searchQuery: query,
+        sourceUrl,
+        sourceTitle,
+        discoverySnippet: cleanDiscoverySnippet(result.text || result.snippet || ''),
+        discoveryScore: '',
+        websiteSummary: '',
+        productWhatTheyDo: '',
+        keyObservation: '',
+        whyItFits: '',
+        outreachNotes: '',
+        fitScore: '',
+        researchConfidence: '',
+        skipReason: '',
+        contactName: '',
+        contactRole: '',
+        contactEmail: '',
+        contactSource: '',
+        contactConfidence: '',
+        subject: '',
+        draftBody: '',
+        writingConfidence: '',
+        draftCreated: '',
+        draftId: '',
+        approvedToSend: '',
+        sent: '',
+        lastUpdated: new Date().toISOString(),
+        notes: '',
+      });
+    }
+  }
+
+  return discovered;
 }
 
 module.exports = { discoverCompanies };
