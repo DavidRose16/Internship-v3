@@ -1,6 +1,33 @@
+/**
+ * src/writeEmail.js — Personalized cold email generation using Claude.
+ *
+ * Builds the email prompt from company context, recipient info, background.md,
+ * and voice.md, then validates the result against a fluff pattern list and a
+ * 120–180 word count limit. Regenerates once if validation fails. A separate
+ * trim pass handles drafts that exceed the word limit.
+ *
+ * Exports used by both the CLI pipeline (runWrite, runDrafts) and the web UI
+ * review page (via /api/revise and /api/approve).
+ */
 const Anthropic = require('@anthropic-ai/sdk');
 
 const anthropic = new Anthropic();
+
+// Phrases that indicate a bad email — triggers one regeneration
+const FLUFF_PATTERNS = [
+  /i wanted to reach out/i,
+  /i came across/i,
+  /super interesting/i,
+  /i (was |am )?(really |truly )?fascinated/i,
+  /\binnovative\b/i,
+  /cutting.?edge/i,
+  /hope this finds you/i,
+  /feel free to/i,
+  /don't hesitate/i,
+  /excited to connect/i,
+  /—/,
+  /[""'']/,
+];
 
 function wordCount(text) {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -26,128 +53,145 @@ function buildRecipientContext(rowData) {
   const company = rowData['Company'] || '';
   const contactName = rowData['Contact Name'] || '';
   const contactRole = rowData['Contact Role'] || '';
+  // 'Contact Type' is injected transiently by runDrafts — not stored in sheet
+  const contactType = rowData['Contact Type'] || (contactName ? 'personal' : 'generic');
+  const contactConfidence = Number(rowData['Contact Confidence']) || 0;
+
+  let confidenceLevel = 'low';
+  if (contactType === 'personal') {
+    confidenceLevel = contactConfidence >= 95 ? 'high' : 'medium';
+  }
 
   return {
     company,
     contactName,
     contactRole,
+    contactType,
+    confidenceLevel,
     greeting: buildGreeting(rowData),
     isTargeted: Boolean(contactName),
   };
 }
 
+function validateEmail(body) {
+  if (wordCount(body) > 180) return false;
+  for (const pattern of FLUFF_PATTERNS) {
+    if (pattern.test(body)) return false;
+  }
+  return true;
+}
+
 async function draftBody(rowData, background, voice, extraInstructions = '') {
-  const { company, contactName, contactRole, greeting, isTargeted } = buildRecipientContext(rowData);
-  const websiteSummary = rowData['Website Summary'] || '';
+  const { company, contactName, contactRole, contactType, confidenceLevel, greeting, isTargeted } =
+    buildRecipientContext(rowData);
   const productWhatTheyDo = rowData['Product / What They Do'] || '';
   const keyObservation = rowData['Key Observation'] || '';
   const whyItFits = rowData['Why It Fits'] || '';
   const outreachNotes = rowData['Outreach Notes'] || '';
 
+  const toneInstruction =
+    contactType === 'personal'
+      ? `Sharp and direct. Assume the reader is technical.${confidenceLevel === 'high' ? ' No social softening. Get straight to the point.' : ' Clean and confident.'}`
+      : `Direct and clear. Slightly broader since this may reach a team inbox. Still concise.`;
+
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 700,
-    messages: [{
-      role: 'user',
-      content: `Write a cold internship outreach email.
+    messages: [
+      {
+        role: 'user',
+        content: `Write a cold internship outreach email.
 
-RECIPIENT CONTEXT:
+RECIPIENT:
 - Company: ${company}
-- Contact name: ${contactName || 'None'}
-- Contact role: ${contactRole || 'None'}
-- Greeting to use exactly: ${greeting}
-- Targeted email: ${isTargeted ? 'yes' : 'no, generic company/team email'}
+- Greeting: ${greeting}
+- Contact type: ${contactType === 'personal' ? `personal (${contactRole || 'unknown role'})` : 'generic team inbox'}${isTargeted ? `\n- Name: ${contactName}` : ''}
 
-COMPANY:
-- Website summary: ${websiteSummary}
-- Product / what they do: ${productWhatTheyDo}
+COMPANY CONTEXT:
+- What they do: ${productWhatTheyDo}
 - Key observation: ${keyObservation}
-- Why it fits: ${whyItFits}
-- Outreach notes: ${outreachNotes}
+- Why it fits: ${whyItFits}${outreachNotes ? `\n- Notes: ${outreachNotes}` : ''}
 
 MY BACKGROUND:
 ${background}
 
-VOICE & STYLE GUIDE:
+STRUCTURE:
+1. First sentence: a specific, concrete observation about what this company is building or doing. Do not start with "I". No generic praise. Reference something real.
+2. 1–2 sentences: connect their work to something concrete from my background. Direct, not philosophical.
+3. 1 sentence: a simple, direct ask. No hedging.
+
+TONE:
+${toneInstruction}
+
+STYLE NOTES:
 ${voice}
 
-EXTRA INSTRUCTIONS:
-${extraInstructions || 'None'}
-
 RULES:
-- MUST be under 120 words
-- Start with the exact greeting provided above
-- If this is not a targeted email, do not pretend to know a person
-- Do not invent facts not present above
-- Use the key observation naturally
-- Do not sound like a mail merge
-- No generic praise
-- Be direct about wanting to contribute or intern
-- Include a low-pressure ask at the end
-- Do NOT include a subject line
-- Do NOT include brackets or placeholders
+- Start with exactly: ${greeting}
+- 120–180 words total
 - No em dashes
-- Respond with ONLY the email body`
-    }]
+- No buzzwords: innovative, cutting-edge, passionate, excited
+- No filler: "I wanted to reach out", "I came across", "super interesting"
+- No sentences longer than 25 words
+- No generic praise
+- Every sentence adds new information
+- Do NOT include a subject line, brackets, or placeholders
+- Do NOT invent facts not present above${extraInstructions ? `\n\nEXTRA:\n${extraInstructions}` : ''}
+
+Respond with ONLY the email body.`,
+      },
+    ],
   });
 
   return message.content[0].text.trim();
 }
 
-async function generateEmail(rowData, background, voice, extraInstructions = '') {
-  const firstDraft = await draftBody(rowData, background, voice, extraInstructions);
-
-  if (wordCount(firstDraft) <= 120) {
-    return firstDraft;
-  }
-
+async function trimBody(draft) {
+  const wc = wordCount(draft);
   const trimmed = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 400,
-    messages: [{
-      role: 'user',
-      content: `This email is ${wordCount(firstDraft)} words. Rewrite it to be under 120 words while keeping the specific company details and natural tone. Preserve the opening greeting exactly. No em dashes.
+    messages: [
+      {
+        role: 'user',
+        content: `This email is ${wc} words. Rewrite it to be under 180 words. Keep the specific company details and natural tone. Preserve the opening greeting exactly. No em dashes. No filler phrases.
 
-${firstDraft}
+${draft}
 
-Respond with ONLY the rewritten email body.`
-    }]
+Respond with ONLY the rewritten email body.`,
+      },
+    ],
   });
 
   return trimmed.content[0].text.trim();
 }
 
-async function generateSubject(rowData) {
-  const company = rowData['Company'] || '';
-  const productWhatTheyDo = rowData['Product / What They Do'] || '';
-  const keyObservation = rowData['Key Observation'] || '';
+async function generateEmail(rowData, background, voice, extraInstructions = '') {
+  let body = await draftBody(rowData, background, voice, extraInstructions);
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 80,
-    messages: [{
-      role: 'user',
-      content: `Write a short subject line for a cold internship outreach email to ${company}.
+  if (wordCount(body) > 180) {
+    body = await trimBody(body);
+  }
 
-What they do: ${productWhatTheyDo}
-Specific observation: ${keyObservation}
+  // Validate output; regenerate once if it fails
+  if (!validateEmail(body)) {
+    body = await draftBody(rowData, background, voice, extraInstructions);
+    if (wordCount(body) > 180) {
+      body = await trimBody(body);
+    }
+  }
 
-Rules:
-- Under 8 words
-- No generic lines like Internship Opportunity or Excited to Connect
-- Reference something specific
-- Lowercase is fine
-- No em dashes
-- Respond with ONLY the subject line`
-    }]
-  });
+  return body;
+}
 
-  return message.content[0].text.trim();
+// Subject is always "Internship" — no dynamic generation
+function generateSubject() {
+  return 'Internship';
 }
 
 async function generateDraftFromRow(rowData, background, voice, extraInstructions = '') {
   const body = await generateEmail(rowData, background, voice, extraInstructions);
-  const subject = await generateSubject(rowData);
+  const subject = generateSubject();
 
   let writingConfidence = 'medium';
   if ((rowData['Research Confidence'] || '').toLowerCase() === 'high') {

@@ -1,3 +1,16 @@
+/**
+ * src/contacts.js — Email contact discovery via Hunter.io.
+ *
+ * Runs a two-pass lookup for each company:
+ *   1. Domain search — returns up to 10 email addresses scored by role tier,
+ *      Hunter confidence, and generic inbox penalties.
+ *   2. Email finder — if no strong named contact (Tier 1–3 role) is found, the
+ *      top-ranked named person from the domain search is used to request a
+ *      verified email from Hunter's email-finder endpoint.
+ *
+ * Falls back to guessed generic inboxes (team@, info@, etc.) if Hunter returns
+ * nothing. The primary contact and a JSON list of all contacts are returned.
+ */
 const axios = require('axios');
 
 const GENERIC_PREFIXES = ['info', 'hello', 'team', 'contact', 'support', 'careers', 'jobs'];

@@ -1,3 +1,13 @@
+/**
+ * src/sheets.js — Google Sheets read/write operations.
+ *
+ * Defines the 36-column pipeline schema (RUN_QUEUE_HEADERS) and exposes helpers
+ * to append new company rows, query rows by stage/status, and update individual
+ * rows in place without overwriting unrelated fields.
+ *
+ * All functions accept a google.auth.OAuth2 client — call authorize() from
+ * src/index.js first to obtain one.
+ */
 const { google } = require('googleapis');
 
 const RUN_QUEUE_HEADERS = [

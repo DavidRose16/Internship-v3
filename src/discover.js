@@ -1,3 +1,11 @@
+/**
+ * src/discover.js — Company discovery via Exa search.
+ *
+ * Queries Exa for each configured search term and applies a chain of filters to
+ * exclude junk results: list/directory pages, blocked domains, consulting firms,
+ * later-stage companies, and clearly off-target results. Returns structured row
+ * objects ready to be appended to the pipeline sheet.
+ */
 const Exa = require('exa-js').default;
 
 /**
@@ -113,12 +121,7 @@ function looksTooBig(text = '') {
     lower.includes('series b') ||
     lower.includes('series c') ||
     lower.includes('series d') ||
-    lower.includes('annual revenue') ||
-    lower.includes('403 people') ||
-    lower.includes('57 people') ||
-    lower.includes('1063 people') ||
-    lower.includes('$480.0m') ||
-    lower.includes('$335.0m')
+    lower.includes('annual revenue')
   );
 }
 

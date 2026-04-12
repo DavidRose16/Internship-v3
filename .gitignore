@@ -1,4 +1,24 @@
+# Dependencies
 node_modules/
+
+# Secrets and credentials — never commit these
 .env
-token.json
 credentials.json
+token.json
+
+# Runtime config written by the web UI — defaults are in code
+ui-config.json
+
+# Next.js build output
+.next/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+.idea/

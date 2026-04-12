@@ -1,3 +1,11 @@
+/**
+ * src/analyze.js — Company research and fit evaluation using Claude.
+ *
+ * Fetches website text via Exa's content API, then prompts Claude to return a
+ * structured JSON assessment: website summary, product description, key observation,
+ * why it fits, outreach angle, fit score, research confidence, and a keep/skip
+ * decision. Rows marked "skip" are not advanced to the write stage.
+ */
 const Anthropic = require('@anthropic-ai/sdk');
 const Exa = require('exa-js').default;
 

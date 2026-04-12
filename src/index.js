@@ -1,3 +1,13 @@
+/**
+ * src/index.js — CLI entry point and pipeline orchestrator.
+ *
+ * Handles Google OAuth2 authorization, reads config from .env and ui-config.json,
+ * and exports each pipeline stage as a function. Run individual stages with:
+ *
+ *   node src/index.js [discover|analyze|write|contacts|targets|drafts|run]
+ *
+ * Also imported by the Next.js API routes so the web UI can trigger stages.
+ */
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
@@ -38,7 +48,9 @@ const CONFIG = {
   tabName: process.env.SHEET_TAB_NAME || 'run_queue',
 };
 
-const ROOT = path.join(__dirname, '..');
+// process.cwd() is the project root both for the CLI and for Next.js API routes.
+// __dirname is unreliable when webpack bundles this module.
+const ROOT = process.cwd();
 const CREDENTIALS_PATH = path.join(ROOT, 'credentials.json');
 const TOKEN_PATH = path.join(ROOT, 'token.json');
 const SCOPES = [
@@ -51,8 +63,7 @@ const SCOPES = [
 // ---------------------------------------------------------------------------
 async function authorize() {
   if (!fs.existsSync(CREDENTIALS_PATH)) {
-    console.error('Missing credentials.json — see README.md for setup steps.');
-    process.exit(1);
+    throw new Error('Missing credentials.json — see README.md for setup steps.');
   }
 
   const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
@@ -469,7 +480,56 @@ async function runTargets(auth) {
 }
 
 // ---------------------------------------------------------------------------
-// Discovery-only pipeline for run_queue ingestion
+// Discovery stage
+// ---------------------------------------------------------------------------
+async function runDiscover(auth) {
+  let existingDomains = new Set();
+  try {
+    existingDomains = await getExistingDomains(auth, CONFIG.sheetId, CONFIG.tabName);
+    console.log(`Found ${existingDomains.size} existing domains in ${CONFIG.tabName}.\n`);
+  } catch (err) {
+    console.log(`Could not read ${CONFIG.tabName} yet (${err.message}). Starting fresh.\n`);
+  }
+
+  console.log('Searching Exa...\n');
+  const discovered = await discoverCompanies(CONFIG.queries, existingDomains, CONFIG.maxPerQuery);
+
+  console.log(`Discovered ${discovered.length} new companies.\n`);
+
+  if (!discovered.length) {
+    console.log('No new companies found. Skipping append.');
+    return;
+  }
+
+  await appendRunQueueRows(auth, CONFIG.sheetId, CONFIG.tabName, discovered);
+  console.log(`Appended ${discovered.length} rows to ${CONFIG.tabName}.\n`);
+}
+
+// ---------------------------------------------------------------------------
+// Full pipeline: run all stages sequentially
+// ---------------------------------------------------------------------------
+async function runAll(auth) {
+  const stages = [
+    { name: 'search',   fn: runDiscover },
+    { name: 'analyze',  fn: runAnalyze },
+    { name: 'write',    fn: runWrite },
+    { name: 'contacts', fn: runContacts },
+    { name: 'targets',  fn: runTargets },
+    { name: 'drafts',   fn: runDrafts },
+  ];
+
+  for (const { name, fn } of stages) {
+    console.log(`\n${'─'.repeat(48)}`);
+    console.log(`  Stage: ${name}`);
+    console.log(`${'─'.repeat(48)}\n`);
+    await fn(auth);
+  }
+
+  console.log('\n=== run complete ===\n');
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
 // ---------------------------------------------------------------------------
 async function main() {
   console.log(`=== Internship Agent: ${CONFIG.mode} ===\n`);
@@ -491,52 +551,33 @@ async function main() {
   const auth = await authorize();
   console.log('Google APIs authenticated.\n');
 
-  if (CONFIG.mode === 'analyze') {
-    await runAnalyze(auth);
-    return;
-  }
-  if (CONFIG.mode === 'write') {
-    await runWrite(auth);
-    return;
-  }
-  if (CONFIG.mode === 'contacts') {
-    await runContacts(auth);
-    return;
-  }
-  if (CONFIG.mode === 'targets') {
-    await runTargets(auth);
-    return;
-  }
-  if (CONFIG.mode === 'drafts') {
-    await runDrafts(auth);
-    return;
-  }
+  if (CONFIG.mode === 'analyze') { await runAnalyze(auth);  return; }
+  if (CONFIG.mode === 'write')   { await runWrite(auth);    return; }
+  if (CONFIG.mode === 'contacts'){ await runContacts(auth); return; }
+  if (CONFIG.mode === 'targets') { await runTargets(auth);  return; }
+  if (CONFIG.mode === 'drafts')  { await runDrafts(auth);   return; }
+  if (CONFIG.mode === 'run')     { await runAll(auth);      return; }
 
-  let existingDomains = new Set();
-  try {
-    existingDomains = await getExistingDomains(auth, CONFIG.sheetId, CONFIG.tabName);
-    console.log(`Found ${existingDomains.size} existing domains in ${CONFIG.tabName}.\n`);
-  } catch (err) {
-    console.log(`Could not read ${CONFIG.tabName} yet (${err.message}). Starting fresh.\n`);
-  }
-
-  console.log('Searching Exa...\n');
-  const discovered = await discoverCompanies(CONFIG.queries, existingDomains, CONFIG.maxPerQuery);
-
-  console.log(`Discovered ${discovered.length} new companies.\n`);
-
-  if (!discovered.length) {
-    console.log('No new companies found. Exiting.');
-    return;
-  }
-
-  await appendRunQueueRows(auth, CONFIG.sheetId, CONFIG.tabName, discovered);
-
-  console.log(`Appended ${discovered.length} rows to ${CONFIG.tabName}.\n`);
+  // Default: discover (also handles explicit "discover" mode)
+  await runDiscover(auth);
   console.log('Done.');
 }
 
-main().catch(err => {
-  console.error('\nFatal error:', err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(err => {
+    console.error('\nFatal error:', err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  authorize,
+  runDiscover,
+  runAnalyze,
+  runWrite,
+  runContacts,
+  runTargets,
+  runDrafts,
+  runAll,
+  CONFIG,
+};
