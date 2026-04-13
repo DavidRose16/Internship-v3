@@ -10,8 +10,26 @@
  * review page (via /api/revise and /api/approve).
  */
 const Anthropic = require('@anthropic-ai/sdk');
+const fs   = require('fs');
+const path = require('path');
 
 const anthropic = new Anthropic();
+
+/**
+ * Read writingInstructions from ui-config.json at call time so that changes
+ * saved via the control page take effect on the next generation without
+ * requiring a server restart. Falls back to the env var if the file is absent.
+ */
+function loadWritingInstructions() {
+  try {
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), 'ui-config.json'), 'utf8')
+    );
+    return cfg.writingInstructions || '';
+  } catch {
+    return process.env.EXTRA_WRITING_INSTRUCTIONS || '';
+  }
+}
 
 // Phrases that indicate a bad email — triggers one regeneration
 const FLUFF_PATTERNS = [
@@ -82,6 +100,14 @@ function validateEmail(body) {
 }
 
 async function draftBody(rowData, background, voice, extraInstructions = '') {
+  // Always read the latest writing instructions from ui-config.json so changes
+  // saved in the control page take effect immediately, without a server restart.
+  const configInstructions = loadWritingInstructions();
+  const combinedInstructions = [configInstructions, extraInstructions]
+    .map(s => (s || '').trim())
+    .filter(Boolean)
+    .join('\n');
+
   const { company, contactName, contactRole, contactType, confidenceLevel, greeting, isTargeted } =
     buildRecipientContext(rowData);
   const productWhatTheyDo = rowData['Product / What They Do'] || '';
@@ -136,7 +162,7 @@ RULES:
 - No generic praise
 - Every sentence adds new information
 - Do NOT include a subject line, brackets, or placeholders
-- Do NOT invent facts not present above${extraInstructions ? `\n\nEXTRA:\n${extraInstructions}` : ''}
+- Do NOT invent facts not present above${combinedInstructions ? `\n\nEXTRA INSTRUCTIONS:\n${combinedInstructions}` : ''}
 
 Respond with ONLY the email body.`,
       },

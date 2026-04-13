@@ -18,13 +18,13 @@ import Link from 'next/link';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// A row needs review if it's targeted (ready to be approved) and has draft content.
+// A row needs review if it has a draft body and send targets, and hasn't been sent yet.
 function isActionable(row) {
   return (
-    row['Stage'] === 'targeted' &&
+    row['Stage'] !== 'gmail_drafted' &&
+    row['Draft Body'] &&
     row['Send Targets'] &&
-    row['Send Targets'] !== '[]' &&
-    row['Draft Body']
+    row['Send Targets'] !== '[]'
   );
 }
 
@@ -134,22 +134,37 @@ function TargetDraftCard({ row, target, initialBody, subject }) {
 
   return (
     <div className={`target-card${isApproved ? ' approved' : ''}`}>
-      {/* Contact info row */}
+      {/* ── Contact header ── */}
       <div
-        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}
+        style={{
+          background: isApproved ? '#f0fdf4' : '#f8fafc',
+          border: `1px solid ${isApproved ? '#bbf7d0' : '#e4e4e7'}`,
+          borderRadius: 6,
+          padding: '10px 14px',
+          marginBottom: 14,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+        }}
       >
         <div>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>{target.name || '(No name)'}</div>
-          <div style={{ color: '#0070f3', fontSize: 12 }}>{target.email}</div>
-          {target.role && <div style={{ color: '#6b7280', fontSize: 12 }}>{target.role}</div>}
-          <div style={{ color: '#9ca3af', fontSize: 11, marginTop: 2 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: '#111', marginBottom: 2 }}>
+            {target.name || '(No name)'}
+          </div>
+          {target.role && (
+            <div style={{ fontSize: 13, color: '#374151', marginBottom: 3 }}>{target.role}</div>
+          )}
+          <div style={{ fontSize: 13, color: '#0070f3', fontFamily: 'monospace' }}>
+            {target.email}
+          </div>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
             {target.type} · confidence: {target.confidence}
           </div>
         </div>
 
         {isApproved && (
-          <div style={{ color: '#16a34a', fontSize: 13, fontWeight: 500, textAlign: 'right' }}>
-            ✓ Gmail draft created
+          <div style={{ color: '#16a34a', fontSize: 13, fontWeight: 600, textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
+            ✓ Draft in Gmail
             {draftId && (
               <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 400 }}>
                 id: {draftId.slice(0, 10)}…
@@ -342,6 +357,7 @@ export default function Review() {
       <nav className="nav">
         <span className="nav-brand">Internship Pipeline</span>
         <Link href="/">Dashboard</Link>
+        <Link href="/sheet">Sheet</Link>
         <Link href="/control">Control</Link>
         <Link href="/review" className="active">Review Drafts</Link>
       </nav>

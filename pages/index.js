@@ -275,6 +275,7 @@ export default function Dashboard() {
       <nav className="nav">
         <span className="nav-brand">Internship Pipeline</span>
         <Link href="/" className="active">Dashboard</Link>
+        <Link href="/sheet">Sheet</Link>
         <Link href="/control">Control</Link>
         <Link href="/review">Review Drafts</Link>
       </nav>
