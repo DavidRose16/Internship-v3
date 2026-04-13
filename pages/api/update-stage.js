@@ -8,7 +8,7 @@
  * Body: { rowNumber: number, stage: string, status: string }
  */
 require('dotenv').config();
-const { authorize } = require('../../src/index');
+const { authorizeSheets } = require('../../src/index');
 const { updateRow } = require('../../src/sheets');
 
 const VALID_STAGES = new Set([
@@ -28,9 +28,9 @@ export default async function handler(req, res) {
   if (!status || !VALID_STATUSES.has(status)) return res.status(400).json({ error: `Invalid status: ${status}` });
 
   try {
-    const auth = await authorize();
+    const auth = await authorizeSheets();
     if (!auth) {
-      return res.status(503).json({ error: 'credentials.json not found. See README for Google Cloud setup.' });
+      return res.status(503).json({ error: 'Google Sheets auth not available. Set GOOGLE_SERVICE_ACCOUNT_KEY or provide credentials.json.' });
     }
     const spreadsheetId = process.env.GOOGLE_SHEET_ID;
     const tabName = process.env.SHEET_TAB_NAME || 'run_queue';

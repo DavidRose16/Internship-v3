@@ -15,7 +15,7 @@ const path = require('path');
 const fs = require('fs');
 
 const {
-  authorize,
+  authorizeSheets,
   runDiscover,
   runAnalyze,
   runWrite,
@@ -109,10 +109,10 @@ export default async function handler(req, res) {
   console.log(`[pipeline] Starting stage: ${stage}`);
 
   try {
-    const auth = await authorize();
+    const auth = await authorizeSheets();
     if (!auth) {
-      if (runId) runLog.finishRun('credentials.json not found');
-      return res.status(503).json({ error: 'credentials.json not found. See README for Google Cloud setup.' });
+      if (runId) runLog.finishRun('Google Sheets auth not available');
+      return res.status(503).json({ error: 'Google Sheets auth not available. Set GOOGLE_SERVICE_ACCOUNT_KEY or provide credentials.json.' });
     }
     await STAGE_MAP[stage](auth);
 

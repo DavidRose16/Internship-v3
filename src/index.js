@@ -59,8 +59,33 @@ const SCOPES = [
 ];
 
 // ---------------------------------------------------------------------------
-// Google OAuth2 — local redirect flow
+// Google auth — two modes for Sheets, one for Gmail
 // ---------------------------------------------------------------------------
+
+/**
+ * authorizeSheets() — returns a Google auth client for Sheets access.
+ *
+ * Priority:
+ *   1. GOOGLE_SERVICE_ACCOUNT_KEY env var (deployed demo — service account JSON)
+ *   2. credentials.json on disk (local dev — OAuth2 flow, same as authorize())
+ *   3. Neither present — returns null without crashing
+ */
+async function authorizeSheets() {
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+    return new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+  }
+
+  if (fs.existsSync(CREDENTIALS_PATH)) {
+    return authorize();
+  }
+
+  return null;
+}
+
 async function authorize() {
   if (!fs.existsSync(CREDENTIALS_PATH)) {
     return null;
@@ -548,9 +573,9 @@ async function main() {
     process.exit(1);
   }
 
-  const auth = await authorize();
+  const auth = await authorizeSheets();
   if (!auth) {
-    console.error('Missing credentials.json — see README.md for Google Cloud setup steps.');
+    console.error('No Google auth available. Set GOOGLE_SERVICE_ACCOUNT_KEY or provide credentials.json.');
     process.exit(1);
   }
   console.log('Google APIs authenticated.\n');
@@ -576,6 +601,7 @@ if (require.main === module) {
 
 module.exports = {
   authorize,
+  authorizeSheets,
   runDiscover,
   runAnalyze,
   runWrite,

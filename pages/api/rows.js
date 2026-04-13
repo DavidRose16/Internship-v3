@@ -8,16 +8,16 @@
  * Used by the dashboard and the review page.
  */
 require('dotenv').config();
-const { authorize } = require('../../src/index');
+const { authorizeSheets } = require('../../src/index');
 const { getSheetRows } = require('../../src/sheets');
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end();
 
   try {
-    const auth = await authorize();
+    const auth = await authorizeSheets();
     if (!auth) {
-      return res.status(503).json({ error: 'credentials.json not found. See README for Google Cloud setup.' });
+      return res.status(503).json({ error: 'Google Sheets auth not available. Set GOOGLE_SERVICE_ACCOUNT_KEY or provide credentials.json.' });
     }
     const spreadsheetId = process.env.GOOGLE_SHEET_ID;
     const tabName = process.env.SHEET_TAB_NAME || 'run_queue';
