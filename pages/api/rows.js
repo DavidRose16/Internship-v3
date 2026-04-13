@@ -16,6 +16,9 @@ export default async function handler(req, res) {
 
   try {
     const auth = await authorize();
+    if (!auth) {
+      return res.status(503).json({ error: 'credentials.json not found. See README for Google Cloud setup.' });
+    }
     const spreadsheetId = process.env.GOOGLE_SHEET_ID;
     const tabName = process.env.SHEET_TAB_NAME || 'run_queue';
 

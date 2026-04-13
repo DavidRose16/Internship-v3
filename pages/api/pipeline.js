@@ -110,6 +110,10 @@ export default async function handler(req, res) {
 
   try {
     const auth = await authorize();
+    if (!auth) {
+      if (runId) runLog.finishRun('credentials.json not found');
+      return res.status(503).json({ error: 'credentials.json not found. See README for Google Cloud setup.' });
+    }
     await STAGE_MAP[stage](auth);
 
     console.log(`[pipeline] ✓ Stage "${stage}" completed.`);

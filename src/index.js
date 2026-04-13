@@ -63,7 +63,7 @@ const SCOPES = [
 // ---------------------------------------------------------------------------
 async function authorize() {
   if (!fs.existsSync(CREDENTIALS_PATH)) {
-    throw new Error('Missing credentials.json — see README.md for setup steps.');
+    return null;
   }
 
   const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
@@ -549,6 +549,10 @@ async function main() {
   }
 
   const auth = await authorize();
+  if (!auth) {
+    console.error('Missing credentials.json — see README.md for Google Cloud setup steps.');
+    process.exit(1);
+  }
   console.log('Google APIs authenticated.\n');
 
   if (CONFIG.mode === 'analyze') { await runAnalyze(auth);  return; }
