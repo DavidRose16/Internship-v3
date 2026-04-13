@@ -1,6 +1,6 @@
 # Internship Outreach Pipeline
 
-An end-to-end automation pipeline for cold outreach to early-stage startups. Discovers companies via Exa search, researches them with Claude, generates personalized cold emails, finds contacts via Hunter.io, and pushes Gmail drafts for human review — all tracked in a Google Sheet.
+Most outreach tools spray and pray. This one finds companies, understands them, reaches the right people, and writes emails worth reading. Built for personal use, open source.
 
 ---
 
