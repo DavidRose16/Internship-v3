@@ -269,7 +269,10 @@ async function runContacts(auth) {
     console.log(`Finding contacts: ${company}`);
 
     try {
-      const { primary, allContacts } = await findContactsForRow(row.data);
+      const { primary, allContacts, verificationSummary, hasVerifiedContacts } = await findContactsForRow(row.data);
+
+      const status = hasVerifiedContacts ? 'ready' : 'no_contact';
+      const notes = hasVerifiedContacts ? verificationSummary : 'no verified contacts found';
 
       await updateRow(auth, CONFIG.sheetId, CONFIG.tabName, row.rowNumber, {
         'Contact Name': primary.name || '',
@@ -278,12 +281,13 @@ async function runContacts(auth) {
         'Contact Source': primary.source || '',
         'Contact Confidence': primary.confidence || '',
         'All Contacts': allContacts,
+        'Notes': notes,
         'Stage': 'contacted',
-        'Status': primary.email ? 'ready' : 'no_contact',
+        'Status': status,
         'Last Updated': new Date().toISOString(),
       });
 
-      console.log(`  -> ${primary.email ? 'found' : 'none'}\n`);
+      console.log(`  -> ${status} — ${verificationSummary}\n`);
     } catch (err) {
       console.log(`  -> error: ${err.message}\n`);
       await updateRow(auth, CONFIG.sheetId, CONFIG.tabName, row.rowNumber, {
@@ -437,32 +441,16 @@ function selectSendTargets(allContactsJson) {
     return true;
   });
 
-  // Rank all personal contacts by targeting score (role tier dominates)
-  const personalSorted = unique
-    .filter(c => c.type === 'personal')
-    .sort((a, b) => scoreForTargeting(b) - scoreForTargeting(a));
+  // Only verified (deliverable) or risky contacts. Never generic, never unverified.
+  const eligible = unique.filter(c =>
+    c.type === 'personal' &&
+    (c.verificationStatus === 'deliverable' || c.verificationStatus === 'risky')
+  );
 
-  // Take up to 3 personal contacts
-  const personal = personalSorted.slice(0, 3);
-
-  // Include a generic inbox ONLY when we have fewer than 3 personal contacts.
-  //   3 personal  → use those 3, no generic
-  //   2 personal  → 2 personal + 1 generic (= 3 total)
-  //   1 personal  → 1 personal + 1 generic (= 2 total)
-  //   0 personal  → 1 generic only
-  if (personal.length >= 3) {
-    return personal; // hard cap: 3 total, no generic
-  }
-
-  const bestGeneric = unique
-    .filter(c => c.type === 'generic')
-    .sort((a, b) => scoreGenericContact(b) - scoreGenericContact(a))[0] || null;
-
-  const targets = [...personal];
-  if (bestGeneric) targets.push(bestGeneric);
-
-  // Safety cap — should never exceed 3 given the logic above
-  return targets.slice(0, 3);
+  // Rank by targeting score (role tier dominates), cap at 3
+  return eligible
+    .sort((a, b) => scoreForTargeting(b) - scoreForTargeting(a))
+    .slice(0, 3);
 }
 
 async function runTargets(auth) {
