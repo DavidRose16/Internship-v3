@@ -89,14 +89,23 @@ Return ONLY valid JSON with this exact shape:
 
 Rules:
 - Be grounded in the website text only.
-- Skip if this is clearly not a startup, is a VC, is too big, is too vague, or is irrelevant.
+- Skip only if this is a large enterprise, a non-tech company, or has no clear connection to AI or software. Do not skip based on size alone if the company is technical.
 - Do not assume specific background details not provided here.
 - Do not flatter or speculate about David.
 - Keep "Why It Fits" grounded in company stage, ambition, technical depth, or learning opportunity.
 - "Outreach Notes" should suggest an actual email angle, not repeat the summary.
 - If the company mainly offers generic AI tools, creative tools, agency services, or broad consumer utilities without a sharp technical wedge, lean skip.
 - Be concise.
-- No markdown fences.`;
+- No markdown fences.
+
+VC / PE / Investment firm rules (apply these when the company is a venture capital firm, venture fund, investment firm, or similar):
+- Do NOT skip VC/PE/investment firms.
+- Set status to "keep".
+- Set fitScore based on investment focus: 8-10 if they actively invest in AI, developer tools, infrastructure, or early-stage technical companies; 5-7 if they invest broadly in tech; 2-4 if their focus is unclear or non-technical.
+- Set keyObservation to a sharp sentence describing what they invest in and who the key partners are, based on the site.
+- Set outreachNotes to "internship or analyst role outreach".
+- Set researchConfidence to "high" if their investment thesis and portfolio focus are clearly stated on the site, otherwise "medium".
+- Set whyItFits to explain why this firm's portfolio focus makes it a useful internship or analyst target for a technical generalist.`;
 
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
